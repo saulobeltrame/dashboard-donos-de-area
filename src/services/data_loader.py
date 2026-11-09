@@ -1,14 +1,14 @@
 import os
+import socket
 import streamlit as st
 import pandas as pd
 import gspread
 
+socket.setdefaulttimeout(25)
+
 @st.cache_resource(show_spinner=False)
 def obter_cliente_gspread():
-    """
-    Autentica com prioridade para o arquivo físico em desenvolvimento local (credenciais.json),
-    mantendo fallback seguro para st.secrets em produção/nuvem.
-    """
+
     caminho_direto = os.path.abspath("credenciais.json")
     caminho_raiz = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "credenciais.json"))
     caminho_arquivo = caminho_direto if os.path.exists(caminho_direto) else (caminho_raiz if os.path.exists(caminho_raiz) else None)
@@ -18,7 +18,6 @@ def obter_cliente_gspread():
     
     if "gcp_service_account" in st.secrets:
         creds_dict = dict(st.secrets["gcp_service_account"])
-        # Higieniza possíveis quebras de linha escapadas no arquivo TOML
         if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
             creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
         return gspread.service_account_from_dict(creds_dict)
@@ -63,17 +62,29 @@ def carregar_dados(url_planilha):
 
     if 'ACFT-LINHA' in df.columns:
         s_acft = df['ACFT-LINHA'].astype(str).str.strip()
-        mask_colon = s_acft.str.contains(':', regex=False)
         split_acft = s_acft.str.split(':', n=1, expand=True)
         
         matricula = split_acft[0].str.strip().str.upper()
-        linha = split_acft[1].fillna('').str.strip().str.capitalize()
         
-        df['ACFT-LINHA'] = s_acft.str.upper()
-        df.loc[mask_colon, 'ACFT-LINHA'] = matricula[mask_colon] + ": " + linha[mask_colon]
+        if split_acft.shape[1] >= 2:
+            linha_acft = split_acft[1].fillna('').str.strip().str.capitalize()
+        else:
+            linha_acft = pd.Series('', index=df.index)
+            
+        linha_id = pd.Series('', index=df.index)
+        if 'ID' in df.columns:
+            s_id = df['ID'].astype(str).str.strip()
+            extraido = s_id.str.extract(r':\s*([^_]+)_')
+            if not extraido.empty and 0 in extraido.columns:
+                linha_id = extraido[0].fillna('').str.strip().str.capitalize()
         
-        df['LINHA'] = s_acft.str.capitalize()
-        df.loc[mask_colon, 'LINHA'] = linha[mask_colon]
+        linha_final = linha_acft.replace('', None).fillna(linha_id).fillna('Não Informada')
+        
+        df['LINHA'] = linha_final
+        mask_valida = (linha_final != '') & (linha_final != 'Não Informada')
+        
+        df['ACFT-LINHA'] = matricula
+        df.loc[mask_valida, 'ACFT-LINHA'] = matricula[mask_valida] + ": " + linha_final[mask_valida]
 
     def extrair_segundos(valor):
         if pd.isna(valor):
