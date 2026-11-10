@@ -27,28 +27,42 @@ def obter_cliente_gspread():
         "Certifique-se de que o arquivo 'credenciais.json' está na raiz do projeto."
     )
 
-@st.cache_data(ttl=300, show_spinner="Sincronizando...")
+import time
+
+@st.cache_data(ttl=300, show_spinner="Sincronizando dados...")
 def carregar_dados(url_planilha):
-    try:
-        gc = obter_cliente_gspread()
-        planilha = gc.open_by_url(url_planilha)
-        aba = planilha.worksheet('Respostas')
-        valores = aba.get_all_values()
-        
-        if not valores or len(valores) < 2:
-            st.warning("A base de inspeções está vazia no momento.")
+    valores = None
+    
+    # LATAM MRO: Algoritmo de Retentativa com Backoff contra erros 503/500 do Google
+    for tentativa in range(3):
+        try:
+            gc = obter_cliente_gspread()
+            planilha = gc.open_by_url(url_planilha)
+            aba = planilha.worksheet('Respostas')
+            valores = aba.get_all_values()
+            break  # Sucesso: sai do loop de tentativas
+        except gspread.exceptions.WorksheetNotFound:
+            st.error("Erro de Estrutura: A aba 'Respostas' não foi localizada no Google Sheets.")
             return pd.DataFrame()
-            
-        df = pd.DataFrame(valores[1:], columns=valores[0])
-    except gspread.exceptions.WorksheetNotFound:
-        st.error("Erro de Estrutura: A aba 'Respostas' não foi localizada na planilha. Verifique a nomenclatura no Google Sheets.")
+        except gspread.exceptions.APIError as e:
+            # Se for 503 (indisponível) ou 429 (cota), aguarda e tenta de novo
+            if any(codigo in str(e) for codigo in ['503', '500', '429']) and tentativa < 2:
+                time.sleep(2 * (tentativa + 1))
+                continue
+            st.error(f"Erro da API Google Sheets: {e}")
+            return pd.DataFrame()
+        except Exception as e:
+            if tentativa < 2:
+                time.sleep(2 * (tentativa + 1))
+                continue
+            st.error(f"Falha de comunicação com a base de dados: {e}")
+            return pd.DataFrame()
+
+    if not valores or len(valores) < 2:
+        st.warning("A base de inspeções está vazia no momento.")
         return pd.DataFrame()
-    except gspread.exceptions.APIError as e:
-        st.error(f"Erro da API Google Sheets: {e}")
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Falha de comunicação com a base de dados: {e}")
-        return pd.DataFrame()
+        
+    df = pd.DataFrame(valores[1:], columns=valores[0])
 
     if 'DATA' in df.columns:
         df = df[df['DATA'].astype(str).str.strip() != ''].copy()
