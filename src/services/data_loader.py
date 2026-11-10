@@ -4,7 +4,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 
-socket.setdefaulttimeout(25)
+socket.setdefaulttimeout(60)
 
 @st.cache_resource(show_spinner=False)
 def obter_cliente_gspread():
@@ -33,14 +33,13 @@ import time
 def carregar_dados(url_planilha):
     valores = None
     
-    # LATAM MRO: Algoritmo de Retentativa com Backoff contra erros 503/500 do Google
     for tentativa in range(3):
         try:
             gc = obter_cliente_gspread()
             planilha = gc.open_by_url(url_planilha)
             aba = planilha.worksheet('Respostas')
             valores = aba.get_all_values()
-            break  # Sucesso: sai do loop de tentativas
+            break
         except gspread.exceptions.WorksheetNotFound:
             st.error("Erro de Estrutura: A aba 'Respostas' não foi localizada no Google Sheets.")
             return pd.DataFrame()
@@ -68,9 +67,7 @@ def carregar_dados(url_planilha):
         df = df[df['DATA'].astype(str).str.strip() != ''].copy()
 
     s_datas = df['DATA'].astype(str).str.strip().str.split().str[0]
-    datas_br = pd.to_datetime(s_datas, format='%d/%m/%Y', errors='coerce')
-    datas_iso = pd.to_datetime(s_datas, format='%Y-%m-%d', errors='coerce')
-    df['DATA_ORDEM'] = datas_br.fillna(datas_iso)
+    df['DATA_ORDEM'] = pd.to_datetime(s_datas, dayfirst=True, errors='coerce')
     df = df.dropna(subset=['DATA_ORDEM']).sort_values('DATA_ORDEM').reset_index(drop=True)
     df['DATA_OBJ'] = df['DATA_ORDEM'].dt.date
 
