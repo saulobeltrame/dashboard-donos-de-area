@@ -37,7 +37,7 @@ def carregar_dados(url_planilha):
         try:
             gc = obter_cliente_gspread()
             planilha = gc.open_by_url(url_planilha)
-            aba = planilha.worksheet('Historico Respostas')
+            aba = planilha.worksheet('Respostas')
             valores = aba.get_all_values()
             break
         except gspread.exceptions.WorksheetNotFound:
