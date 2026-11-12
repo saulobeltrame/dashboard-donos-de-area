@@ -67,7 +67,16 @@ def carregar_dados(url_planilha):
         df = df[df['DATA'].astype(str).str.strip() != ''].copy()
 
     s_datas = df['DATA'].astype(str).str.strip().str.split().str[0]
-    df['DATA_ORDEM'] = pd.to_datetime(s_datas, dayfirst=True, errors='coerce')
+    
+    mask_iso = s_datas.str.contains('-', regex=False)
+    
+    datas_convertidas = pd.Series(pd.NaT, index=df.index)
+    if mask_iso.any():
+        datas_convertidas.loc[mask_iso] = pd.to_datetime(s_datas[mask_iso], format='%Y-%m-%d', errors='coerce')
+    if (~mask_iso).any():
+        datas_convertidas.loc[~mask_iso] = pd.to_datetime(s_datas[~mask_iso], format='%d/%m/%Y', errors='coerce')
+        
+    df['DATA_ORDEM'] = datas_convertidas
     df = df.dropna(subset=['DATA_ORDEM']).sort_values('DATA_ORDEM').reset_index(drop=True)
     df['DATA_OBJ'] = df['DATA_ORDEM'].dt.date
 
